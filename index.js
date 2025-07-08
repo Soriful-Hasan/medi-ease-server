@@ -28,6 +28,21 @@ async function run() {
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
     );
+
+    const userCollection = client.db("medi-ease").collection("users");
+
+    // insert user data from client side
+    app.post("/userInfo", async (req, res) => {
+      const userInfo = req.body.userInfo;
+      userInfo.createdAt = new Date().toISOString();
+      const existing = await userCollection.findOne({ email: userInfo.email });
+      if (existing) {
+        return res.status(409).send({ message: "User already exist" });
+      }
+      const result = await userCollection.insertOne(userInfo);
+      res.send(result);
+    });
+    
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
