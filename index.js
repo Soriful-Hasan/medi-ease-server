@@ -30,11 +30,12 @@ async function run() {
     );
 
     const userCollection = client.db("medi-ease").collection("users");
+    const campCollection = client.db("medi-ease").collection("camps");
 
     // insert user data from client side
     app.post("/userInfo", async (req, res) => {
       const userInfo = req.body.userInfo;
-      userInfo.createdAt = new Date().toISOString();
+      userInfo.createdAt = new Date();
       const existing = await userCollection.findOne({ email: userInfo.email });
       if (existing) {
         return res.status(409).send({ message: "User already exist" });
@@ -42,7 +43,40 @@ async function run() {
       const result = await userCollection.insertOne(userInfo);
       res.send(result);
     });
-    
+
+    // get popular camps
+    app.get("/popular-camps", async (req, res) => {
+      const result = await campCollection
+        .find()
+        .limit(6)
+        .sort({ participant_count: -1 })
+        .toArray();
+      res.send(result);
+    });
+
+    //========================================all api for admin access =====================
+
+    app.post("/admin/add-camp", async (req, res) => {
+      const campData = req.body;
+      campData.createdAt = new Date();
+      const result = await campCollection.insertOne(campData);
+      res.send(result);
+    });
+
+    app.get("/admin/get-camps", async (req, res) => {
+      const email = req.query.email;
+      const query = { created_by: email };
+      const user = await userCollection.findOne({ email });
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
+
+      const result = await campCollection.find(query).toArray();
+      res.send(result);
+    });
+
+    //=============================================================================
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
