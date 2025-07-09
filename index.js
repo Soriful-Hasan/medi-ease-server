@@ -54,6 +54,12 @@ async function run() {
       res.send(result);
     });
 
+    // get all camps
+    app.get("/all-camps", async (req, res) => {
+      const result = await campCollection.find().toArray();
+      res.send(result);
+    });
+
     //========================================all api for admin access =====================
 
     app.post("/admin/add-camp", async (req, res) => {
