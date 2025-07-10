@@ -2,6 +2,7 @@ const express = require("express");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const cors = require("cors");
 const dotenv = require("dotenv");
+const { default: Stripe } = require("stripe");
 
 dotenv.config();
 
@@ -12,8 +13,12 @@ const port = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
+// require stripe
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+// const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
+
 const uri = process.env.DB_URL;
-console.log(uri);
+
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -31,8 +36,14 @@ async function run() {
 
     const userCollection = client.db("medi-ease").collection("users");
     const campCollection = client.db("medi-ease").collection("camps");
-    const campParticipants = client.db("medi-ease").collection("campParticipants");
-    const paymentHistory = client.db("medi-ease").collection("paymentHistory");
+    const campParticipants = client
+      .db("medi-ease")
+      .collection("campParticipants");
+    const paymentCollection = client
+      .db("medi-ease")
+      .collection("paymentHistory");
+
+    //=============================================== Basic Api ==============================================//
 
     // insert user data from client side
     app.post("/userInfo", async (req, res) => {
@@ -107,7 +118,16 @@ async function run() {
       });
       res.send({ alreadyJoined: !!existing });
     });
-    //======================================== API for admin access =====================
+
+    // get camp participant
+    app.get("/user/camp-participant/:id", async (req, res) => {
+      const id = req.params.id;
+      console.log(id);
+      const query = { _id: new ObjectId(id) };
+      const result = await campParticipants.findOne(query);
+      res.send(result);
+    });
+    //======================================== API for admin access =======================================
 
     app.post("/admin/add-camp", async (req, res) => {
       const campData = req.body;
@@ -129,7 +149,40 @@ async function run() {
       res.send(result);
     });
 
-    //=============================================================================
+    //=========================================== Payment method API ==================================
+    app.post("/create-payment-intent", async (req, res) => {
+      const { amount } = req.body;
+      console.log(amount);
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amount * 100,
+        currency: "usd",
+        payment_method_types: ["card"],
+      });
+      res.send(paymentIntent);
+    });
+    app.post("/payment/history", async (req, res) => {
+      const { participantId, email, amount, transactionId, paymentMethod } =
+        req.body.paymentData;
+
+      const updateResult = await campParticipants.updateOne(
+        {
+          _id: new ObjectId(participantId),
+        },
+        { $set: { payment_status: "paid" } }
+      );
+
+      const paymentDoc = {
+        participantId,
+        email,
+        amount: amount / 100,
+        paymentMethod,
+        transactionId,
+        paidAt: new Date(),
+      };
+      const paymentResult = await paymentCollection.insertOne(paymentDoc);
+      res.send(paymentResult);
+    });
+    //==================================================================================================
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
