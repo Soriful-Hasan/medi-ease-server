@@ -1,5 +1,5 @@
 const express = require("express");
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const cors = require("cors");
 const dotenv = require("dotenv");
 
@@ -31,6 +31,8 @@ async function run() {
 
     const userCollection = client.db("medi-ease").collection("users");
     const campCollection = client.db("medi-ease").collection("camps");
+    const campParticipants = client.db("medi-ease").collection("campParticipants");
+    const paymentHistory = client.db("medi-ease").collection("paymentHistory");
 
     // insert user data from client side
     app.post("/userInfo", async (req, res) => {
@@ -60,7 +62,52 @@ async function run() {
       res.send(result);
     });
 
-    //========================================all api for admin access =====================
+    //======================================= API for user =================================
+
+    // get camp details
+    app.get("/user/camp-details/:id", async (req, res) => {
+      const id = req.params.id;
+      console.log(id);
+      const query = { _id: new ObjectId(id) };
+      const result = await campCollection.findOne(query);
+      res.send(result);
+    });
+
+    // save user join-camp info
+    app.post("/user/join-camp", async (req, res) => {
+      const joinInfo = req.body;
+      joinInfo.payment_status = "unpaid";
+      const result = await campParticipants.insertOne(joinInfo);
+
+      const campId = joinInfo.campId;
+      await campCollection.updateOne(
+        { _id: new ObjectId(campId) },
+        { $inc: { participant_count: 1 } }
+      );
+
+      res.send(result);
+    });
+
+    // get registered camps
+    app.get("/user/registeredCamps", async (req, res) => {
+      const email = req.query.email;
+
+      const query = { participant_email: email };
+      const result = await campParticipants.find(query).toArray();
+      res.send(result);
+    });
+
+    // check user joined
+    app.get("/user/is-joined", async (req, res) => {
+      const { campId, email } = req.query;
+      console.log(campId, email);
+      const existing = await campParticipants.findOne({
+        participant_email: email,
+        campId,
+      });
+      res.send({ alreadyJoined: !!existing });
+    });
+    //======================================== API for admin access =====================
 
     app.post("/admin/add-camp", async (req, res) => {
       const campData = req.body;
