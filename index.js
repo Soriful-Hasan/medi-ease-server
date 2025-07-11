@@ -168,13 +168,24 @@ async function run() {
       res.send(result);
     });
 
-    // app.get("/role/:email", async (req, res) => {
-    //   const email = req.params;
-    //   if (req.decoded?.email !== email) {
-    //     retu
-    //   }
-    //   const result = await userCollection.findOne({ role });
-    // });
+    //  user role API
+    app.get("/user/role/:email", verifyToken, async (req, res) => {
+      const { email } = req.params;
+      console.log(email);
+      if (req.decoded?.email !== email) {
+        return res.status(403).json({ message: "Forbidden access" });
+      }
+      try {
+        const user = await userCollection.findOne({ email });
+        if (!user) {
+          return res.status(404).json({ message: "User not found" });
+        }
+        res.json({ role: user.role });
+      } catch (error) {
+        console.log("Error fetching role:", error);
+        res.status(500).json({ message: "Server Error" });
+      }
+    });
 
     //=========================================== Payment method API ==================================
     app.post("/create-payment-intent", async (req, res) => {
