@@ -28,10 +28,11 @@ const verifyToken = async (req, res, next) => {
   }
   const token = authHeader.split(" ")[1];
   try {
-    const decodedToken = await admin.auth().verifyToken(token);
+    const decodedToken = await admin.auth().verifyIdToken(token);
     req.user = decodedToken;
     next();
   } catch (error) {
+    console.log(error);
     res.status(403).json({ message: "Invalid  or expired token" });
   }
 };
@@ -61,6 +62,19 @@ async function run() {
     const paymentCollection = client
       .db("medi-ease")
       .collection("paymentHistory");
+
+    // verify admin API
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.user?.email;
+      if (!email) {
+        res.status(403).send("Forbidden");
+      }
+      const user = await userCollection.findOne({ email });
+      if (user?.role !== "admin") {
+        return res.status(403).send("Access denied: Admin only");
+      }
+      next();
+    };
 
     //=============================================== Basic Api ==============================================//
 
@@ -95,7 +109,7 @@ async function run() {
     //======================================= API for user =================================
 
     // get camp details
-    app.get("/user/camp-details/:id", async (req, res) => {
+    app.get("/user/camp-details/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       console.log(id);
       const query = { _id: new ObjectId(id) };
@@ -107,6 +121,7 @@ async function run() {
     app.post("/user/join-camp", async (req, res) => {
       const joinInfo = req.body;
       joinInfo.payment_status = "unpaid";
+      joinInfo.conformation_status = "pending";
       const result = await campParticipants.insertOne(joinInfo);
 
       const campId = joinInfo.campId;
@@ -148,39 +163,67 @@ async function run() {
     });
     //======================================== API for admin access =======================================
 
-    app.post("/admin/add-camp", async (req, res) => {
+    app.post("/admin/add-camp", verifyToken, verifyAdmin, async (req, res) => {
       const campData = req.body;
       campData.createdAt = new Date();
       const result = await campCollection.insertOne(campData);
       res.send(result);
     });
 
-    app.get("/admin/get-camps", async (req, res) => {
+    app.get("/admin/get-camps", verifyToken, verifyAdmin, async (req, res) => {
       const email = req.query.email;
       const query = { created_by: email };
-      const user = await userCollection.findOne({ email });
-
-      if (!user || user.role !== "admin") {
-        return res.status(403).send({ message: "Forbidden access" });
-      }
-
       const result = await campCollection.find(query).toArray();
       res.send(result);
     });
+    app.get(
+      "/admin/get-registered-camps",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        const email = req.query.email;
+        const query = { created_by: email };
+        const result = await campParticipants.find(query).toArray();
+        res.send(result);
+      }
+    );
+
+    // registered Camp API
+    app.patch(
+      "/admin/camp-confirm/:id",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        console.log(id);
+        const result = await campParticipants.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { conformation_status: "confirmed" } }
+        );
+        res.send(result);
+      }
+    );
+    app.delete(
+      "/admin/register-camp-delete/:id",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const query = { _id: new ObjectId(id) };
+        const result = await campParticipants.deleteOne(query);
+        res.send(result);
+      }
+    );
 
     //  user role API
     app.get("/user/role/:email", verifyToken, async (req, res) => {
       const { email } = req.params;
-      console.log(email);
-      if (req.decoded?.email !== email) {
-        return res.status(403).json({ message: "Forbidden access" });
-      }
       try {
         const user = await userCollection.findOne({ email });
         if (!user) {
           return res.status(404).json({ message: "User not found" });
         }
-        res.json({ role: user.role });
+        res.send(user);
       } catch (error) {
         console.log("Error fetching role:", error);
         res.status(500).json({ message: "Server Error" });
