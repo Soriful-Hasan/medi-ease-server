@@ -1,9 +1,13 @@
 const express = require("express");
+const admin = require("firebase-admin");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const cors = require("cors");
 const dotenv = require("dotenv");
 const { default: Stripe } = require("stripe");
-
+const serviceAccount = require("./firebase-admin.json");
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
 dotenv.config();
 
 const app = express();
@@ -15,7 +19,22 @@ app.use(express.json());
 
 // require stripe
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
-// const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
+
+//Firebase token verify middleware
+const verifyToken = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ message: "No token provided" });
+  }
+  const token = authHeader.split(" ")[1];
+  try {
+    const decodedToken = await admin.auth().verifyToken(token);
+    req.user = decodedToken;
+    next();
+  } catch (error) {
+    res.status(403).json({ message: "Invalid  or expired token" });
+  }
+};
 
 const uri = process.env.DB_URL;
 
@@ -149,6 +168,14 @@ async function run() {
       res.send(result);
     });
 
+    // app.get("/role/:email", async (req, res) => {
+    //   const email = req.params;
+    //   if (req.decoded?.email !== email) {
+    //     retu
+    //   }
+    //   const result = await userCollection.findOne({ role });
+    // });
+
     //=========================================== Payment method API ==================================
     app.post("/create-payment-intent", async (req, res) => {
       const { amount } = req.body;
@@ -160,7 +187,7 @@ async function run() {
       });
       res.send(paymentIntent);
     });
-    app.post("/payment/history", async (req, res) => {
+    app.post("/payment/save-history", async (req, res) => {
       const { participantId, email, amount, transactionId, paymentMethod } =
         req.body.paymentData;
 
@@ -181,6 +208,17 @@ async function run() {
       };
       const paymentResult = await paymentCollection.insertOne(paymentDoc);
       res.send(paymentResult);
+    });
+    app.get("/payment/history", async (req, res) => {
+      const email = req.query.email;
+
+      const result = await paymentCollection
+        .find({
+          email: email,
+        })
+        .toArray();
+
+      res.send(result);
     });
     //==================================================================================================
   } finally {
