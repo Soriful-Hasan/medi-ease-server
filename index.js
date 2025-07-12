@@ -62,6 +62,7 @@ async function run() {
     const paymentCollection = client
       .db("medi-ease")
       .collection("paymentHistory");
+    const feedbackCollection = client.db("medi-ease").collection("feedbacks");
 
     // verify admin API
     const verifyAdmin = async (req, res, next) => {
@@ -120,7 +121,7 @@ async function run() {
     app.post("/user/join-camp", async (req, res) => {
       const joinInfo = req.body;
       joinInfo.payment_status = "unpaid";
-      joinInfo.conformation_status = "pending";
+      joinInfo.confirmation_status = "pending";
       const result = await campParticipants.insertOne(joinInfo);
 
       const campId = joinInfo.campId;
@@ -159,6 +160,13 @@ async function run() {
       const result = await campParticipants.findOne(query);
       res.send(result);
     });
+
+    // user feedback data save
+    app.post("/user/feedback", async (req, res) => {
+      const feedbackData = req.body;
+      const result = await feedbackCollection.insertOne(feedbackData);
+      res.send(result);
+    });
     //======================================== API for admin access =======================================
 
     app.post("/admin/add-camp", verifyToken, verifyAdmin, async (req, res) => {
@@ -185,7 +193,7 @@ async function run() {
         res.send(result);
       }
     );
-    // registered Camp API
+    //conformed camp when successfully pay
     app.patch(
       "/admin/camp-confirm/:id",
       verifyToken,
@@ -195,7 +203,7 @@ async function run() {
 
         const result = await campParticipants.updateOne(
           { _id: new ObjectId(id) },
-          { $set: { conformation_status: "confirmed" } }
+          { $set: { confirmation_status: "confirmed" } }
         );
         res.send(result);
       }
@@ -214,24 +222,34 @@ async function run() {
     );
 
     //update added camp by admin
-    app.patch("/admin/campUpdate/:id", async (req, res) => {
-      const updatedData = req.body;
-      console.log(updatedData);
-      const campId = req.params.id;
-      const result = await campCollection.updateOne(
-        {
-          _id: new ObjectId(campId),
-        },
-        { $set: updatedData }
-      );
-      res.send(result);
-    });
+    app.patch(
+      "/admin/campUpdate/:id",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        const updatedData = req.body;
+        console.log(updatedData);
+        const campId = req.params.id;
+        const result = await campCollection.updateOne(
+          {
+            _id: new ObjectId(campId),
+          },
+          { $set: updatedData }
+        );
+        res.send(result);
+      }
+    );
     // delete added camp by admin
-    app.delete("/admin/deleteCamp/:id", async (req, res) => {
-      const campId = req.params.id;
-      const result = campCollection.deleteOne({ _id: new ObjectId(campId) });
-      res.send(result);
-    });
+    app.delete(
+      "/admin/deleteCamp/:id",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        const campId = req.params.id;
+        const result = campCollection.deleteOne({ _id: new ObjectId(campId) });
+        res.send(result);
+      }
+    );
 
     //  user role API
     app.get("/user/role/:email", verifyToken, async (req, res) => {
@@ -258,6 +276,7 @@ async function run() {
       });
       res.send(paymentIntent);
     });
+    // save payment history and also update payment status and conform status
     app.post("/payment/save-history", async (req, res) => {
       const { participantId, email, amount, transactionId, paymentMethod } =
         req.body.paymentData;
@@ -268,7 +287,7 @@ async function run() {
         },
         { $set: { payment_status: "paid" } }
       );
-
+      console.log(updateResult);
       const paymentDoc = {
         participantId,
         email,
@@ -280,6 +299,7 @@ async function run() {
       const paymentResult = await paymentCollection.insertOne(paymentDoc);
       res.send(paymentResult);
     });
+
     app.get("/payment/history", async (req, res) => {
       const email = req.query.email;
 
