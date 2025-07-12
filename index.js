@@ -111,7 +111,6 @@ async function run() {
     // get camp details
     app.get("/user/camp-details/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
-      console.log(id);
       const query = { _id: new ObjectId(id) };
       const result = await campCollection.findOne(query);
       res.send(result);
@@ -145,7 +144,7 @@ async function run() {
     // check user joined
     app.get("/user/is-joined", async (req, res) => {
       const { campId, email } = req.query;
-      console.log(campId, email);
+
       const existing = await campParticipants.findOne({
         participant_email: email,
         campId,
@@ -156,7 +155,6 @@ async function run() {
     // get camp participant
     app.get("/user/camp-participant/:id", async (req, res) => {
       const id = req.params.id;
-      console.log(id);
       const query = { _id: new ObjectId(id) };
       const result = await campParticipants.findOne(query);
       res.send(result);
@@ -187,7 +185,6 @@ async function run() {
         res.send(result);
       }
     );
-
     // registered Camp API
     app.patch(
       "/admin/camp-confirm/:id",
@@ -195,7 +192,7 @@ async function run() {
       verifyAdmin,
       async (req, res) => {
         const id = req.params.id;
-        console.log(id);
+
         const result = await campParticipants.updateOne(
           { _id: new ObjectId(id) },
           { $set: { conformation_status: "confirmed" } }
@@ -203,6 +200,7 @@ async function run() {
         res.send(result);
       }
     );
+    // delete registered camp (payment=unpaid , status=pending)
     app.delete(
       "/admin/register-camp-delete/:id",
       verifyToken,
@@ -214,6 +212,26 @@ async function run() {
         res.send(result);
       }
     );
+
+    //update added camp by admin
+    app.patch("/admin/campUpdate/:id", async (req, res) => {
+      const updatedData = req.body;
+      console.log(updatedData);
+      const campId = req.params.id;
+      const result = await campCollection.updateOne(
+        {
+          _id: new ObjectId(campId),
+        },
+        { $set: updatedData }
+      );
+      res.send(result);
+    });
+    // delete added camp by admin
+    app.delete("/admin/deleteCamp/:id", async (req, res) => {
+      const campId = req.params.id;
+      const result = campCollection.deleteOne({ _id: new ObjectId(campId) });
+      res.send(result);
+    });
 
     //  user role API
     app.get("/user/role/:email", verifyToken, async (req, res) => {
@@ -233,7 +251,6 @@ async function run() {
     //=========================================== Payment method API ==================================
     app.post("/create-payment-intent", async (req, res) => {
       const { amount } = req.body;
-      console.log(amount);
       const paymentIntent = await stripe.paymentIntents.create({
         amount: amount * 100,
         currency: "usd",
