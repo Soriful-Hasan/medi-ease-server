@@ -136,7 +136,6 @@ async function run() {
     // get registered camps
     app.get("/user/registeredCamps", async (req, res) => {
       const email = req.query.email;
-
       const query = { participant_email: email };
       const result = await campParticipants.find(query).toArray();
       res.send(result);
@@ -178,21 +177,61 @@ async function run() {
 
     app.get("/admin/get-camps", verifyToken, verifyAdmin, async (req, res) => {
       const email = req.query.email;
+      const page = parseInt(req.query.page);
+      const size = parseInt(req.query.size);
+
+      console.log("pagination query", req.query);
       const query = { created_by: email };
-      const result = await campCollection.find(query).toArray();
+      const result = await campCollection
+        .find(query)
+        .skip(page * size)
+        .limit(size)
+        .toArray();
       res.send(result);
     });
+
+    // get count Api for pagination
+    app.get(
+      "/admin/camps/count",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        const count = await campCollection.estimatedDocumentCount();
+        res.send({ totalCamps: count });
+      }
+    );
+
+    // get all data registered 
     app.get(
       "/admin/get-registered-camps",
       verifyToken,
       verifyAdmin,
       async (req, res) => {
         const email = req.query.email;
+        const page = parseInt(req.query.page);
+        const size = parseInt(req.query.size);
         const query = { created_by: email };
-        const result = await campParticipants.find(query).toArray();
+        const result = await campParticipants
+          .find(query)
+          .skip(page * size)
+          .limit(size)
+          .toArray();
         res.send(result);
       }
     );
+      
+    // get count Api for pagination
+    app.get(
+      "/admin/registeredCamp/count",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        const count = await campParticipants.estimatedDocumentCount();
+        res.send({ totalRegCamps: count });
+      }
+    );
+
+
     //conformed camp when successfully pay
     app.patch(
       "/admin/camp-confirm/:id",
