@@ -136,9 +136,30 @@ async function run() {
     // get registered camps
     app.get("/user/registeredCamps", async (req, res) => {
       const email = req.query.email;
+      const page = parseInt(req.query.page);
+      const size = parseInt(req.query.size);
+      const searchText = req.query.search;
+      console.log(searchText);
+      console.log("registeredCamps", page, size);
       const query = { participant_email: email };
-      const result = await campParticipants.find(query).toArray();
+      if (searchText) {
+        query.camp_name = { $regex: searchText, $options: "i" };
+      }
+      const result = await campParticipants
+        .find(query)
+        .skip(page * size)
+        .limit(size)
+        .toArray();
       res.send(result);
+    });
+
+    // get count for registered camp
+    app.get("/user/participant-camp-count", async (req, res) => {
+      const email = req.query.email;
+      const count = await campParticipants.countDocuments({
+        participant_email: email,
+      });
+      res.send({ count });
     });
 
     // check user joined
@@ -177,11 +198,14 @@ async function run() {
 
     app.get("/admin/get-camps", verifyToken, verifyAdmin, async (req, res) => {
       const email = req.query.email;
+      const searchText = req.query.search;
       const page = parseInt(req.query.page);
       const size = parseInt(req.query.size);
 
-      console.log("pagination query", req.query);
       const query = { created_by: email };
+      if (searchText) {
+        query.camp_name = { $regex: searchText, $options: "i" };
+      }
       const result = await campCollection
         .find(query)
         .skip(page * size)
@@ -197,20 +221,26 @@ async function run() {
       verifyAdmin,
       async (req, res) => {
         const count = await campCollection.estimatedDocumentCount();
-        res.send({ totalCamps: count });
+        res.send({ count });
       }
     );
 
-    // get all data registered 
+    // get all data registered
     app.get(
       "/admin/get-registered-camps",
       verifyToken,
       verifyAdmin,
       async (req, res) => {
         const email = req.query.email;
+        const searchText = req.query.search;
+        console.log(searchText);
         const page = parseInt(req.query.page);
         const size = parseInt(req.query.size);
         const query = { created_by: email };
+
+        if (searchText) {
+          query.participant_name = { $regex: searchText, $options: "i" };
+        }
         const result = await campParticipants
           .find(query)
           .skip(page * size)
@@ -219,7 +249,7 @@ async function run() {
         res.send(result);
       }
     );
-      
+
     // get count Api for pagination
     app.get(
       "/admin/registeredCamp/count",
@@ -227,10 +257,9 @@ async function run() {
       verifyAdmin,
       async (req, res) => {
         const count = await campParticipants.estimatedDocumentCount();
-        res.send({ totalRegCamps: count });
+        res.send({ count });
       }
     );
-
 
     //conformed camp when successfully pay
     app.patch(
@@ -341,14 +370,30 @@ async function run() {
 
     app.get("/payment/history", async (req, res) => {
       const email = req.query.email;
+      const page = parseInt(req.query.page);
+      const size = parseInt(req.query.size);
+      const searchText = req.query.search;
 
+      const query = { email: email };
+      if (searchText) {
+        query.transactionId = { $regex: searchText, $options: "i" };
+      }
       const result = await paymentCollection
-        .find({
-          email: email,
-        })
+        .find(query)
+        .skip(page * size)
+        .limit(size)
         .toArray();
 
       res.send(result);
+    });
+    app.get("/payment/participant-payment-count", async (req, res) => {
+      const email = req.query.email;
+      console.log(email);
+      const count = await paymentCollection.countDocuments({
+        email: email,
+      });
+
+      res.send({ count });
     });
     //==================================================================================================
   } finally {
