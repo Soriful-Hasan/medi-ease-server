@@ -334,6 +334,121 @@ async function run() {
       }
     });
 
+    // admin Analytics API
+    app.get("/admin/analytics", async (req, res) => {
+      const now = new Date();
+      const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const startOfLastMonth = new Date(
+        now.getFullYear(),
+        now.getMonth() - 1,
+        1
+      );
+      const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+      // total participants
+      const totalParticipants = await userCollection.countDocuments({
+        role: "participant",
+      });
+      const thisMonthParticipants = await userCollection.countDocuments({
+        role: "participant",
+        createdAt: { $gte: startOfThisMonth },
+      });
+
+      const lastMonthParticipants = await userCollection.countDocuments({
+        role: "participant",
+        createdAt: { $gte: startOfLastMonth, $lt: endOfLastMonth },
+      });
+
+      // total camp
+      const totalCamps = await campCollection.countDocuments();
+      const thisMonthCamps = await campCollection.countDocuments({
+        createdAt: { $gte: startOfThisMonth },
+      });
+      const lastMonthCamps = await campCollection.countDocuments({
+        createdAt: { $gte: startOfLastMonth, $lt: endOfLastMonth },
+      });
+
+      // total paid payment
+      const totalPaidPayments = await paymentCollection.countDocuments({
+        payment_status: "paid",
+      });
+
+      const thisMonthPaidPayments = await paymentCollection.countDocuments({
+        payment_status: "paid",
+        paidAt: { $gte: startOfThisMonth },
+      });
+      const lastMonthPaidPayments = await paymentCollection.countDocuments({
+        payment_status: "paid",
+        paidAt: { $gte: startOfLastMonth, $lt: endOfLastMonth },
+      });
+
+      // total pending payment
+      const totalPendingPayments = await paymentCollection.countDocuments({
+        payment_status: "unpaid",
+      });
+
+      // Total Revenue (This & Last Month)
+      const revenueResult = await paymentCollection
+        .aggregate([
+          { $match: { payment_status: "paid" } },
+          { $group: { _id: null, totalRevenue: { $sum: "$amount" } } },
+        ])
+        .toArray();
+
+      const totalRevenue = revenueResult[0]?.totalRevenue || 0;
+
+      const thisMonthRevenueResult = await paymentCollection
+        .aggregate([
+          {
+            $match: {
+              payment_status: "paid",
+              paidAt: { $gte: startOfThisMonth },
+            },
+          },
+          { $group: { _id: null, revenue: { $sum: "$amount" } } },
+        ])
+        .toArray();
+
+      const thisMonthRevenue = thisMonthRevenueResult[0]?.revenue || 0;
+
+      const lastMonthRevenueResult = await paymentCollection
+        .aggregate([
+          {
+            $match: {
+              payment_status: "paid",
+              paidAt: { $gte: startOfLastMonth, $lt: endOfLastMonth },
+            },
+          },
+          { $group: { _id: null, revenue: { $sum: "$amount" } } },
+        ])
+        .toArray();
+
+      const lastMonthRevenue = lastMonthRevenueResult[0]?.revenue || 0;
+
+      // Calculate % Changes
+      const calculateChange = (current, previous) => {
+        if (previous === 0) return current > 0 ? 100 : 0;
+        return (((current - previous) / previous) * 100).toFixed(2);
+      };
+
+      res.json({
+        totalParticipants,
+        participantChange: calculateChange(
+          thisMonthParticipants,
+          lastMonthParticipants
+        ),
+        totalCamps,
+        campChange: calculateChange(thisMonthCamps, lastMonthCamps),
+        totalPaidPayments,
+        paidPaymentChange: calculateChange(
+          thisMonthPaidPayments,
+          lastMonthPaidPayments
+        ),
+        totalPendingPayments,
+        totalRevenue,
+        revenueChange: calculateChange(thisMonthRevenue, lastMonthRevenue),
+      });
+    });
+
     //=========================================== Payment method API ==================================
     app.post("/create-payment-intent", async (req, res) => {
       const { amount } = req.body;
@@ -346,8 +461,16 @@ async function run() {
     });
     // save payment history and also update payment status and conform status
     app.post("/payment/save-history", async (req, res) => {
-      const { participantId, email, amount, transactionId, paymentMethod } =
-        req.body.paymentData;
+      const {
+        participantId,
+        camp_name,
+        payment_status,
+        confirmation_status,
+        email,
+        amount,
+        transactionId,
+        paymentMethod,
+      } = req.body.paymentData;
 
       const updateResult = await campParticipants.updateOne(
         {
@@ -358,6 +481,9 @@ async function run() {
       console.log(updateResult);
       const paymentDoc = {
         participantId,
+        camp_name,
+        payment_status,
+        confirmation_status,
         email,
         amount: amount / 100,
         paymentMethod,
@@ -376,7 +502,7 @@ async function run() {
 
       const query = { email: email };
       if (searchText) {
-        query.transactionId = { $regex: searchText, $options: "i" };
+        query.camp_name = { $regex: searchText, $options: "i" };
       }
       const result = await paymentCollection
         .find(query)
