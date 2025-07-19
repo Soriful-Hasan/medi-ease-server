@@ -33,7 +33,7 @@ const verifyToken = async (req, res, next) => {
     next();
   } catch (error) {
     console.log(error);
-    res.status(403).json({ message: "Invalid  or expired token" });
+    res.status(401).json({ message: "Invalid  or expired token" });
   }
 };
 
@@ -77,6 +77,19 @@ async function run() {
       next();
     };
 
+    // verify participant API
+    const verifyParticipant = async (req, res, next) => {
+      const email = req.user?.email;
+      if (!email) {
+        res.status(403).send("Forbidden");
+      }
+      const user = await userCollection.findOne({ email });
+      if (user?.role !== "participant") {
+        return res.status(403).send("Access denied: Participant only");
+      }
+      next();
+    };
+
     //=============================================== Basic Api ==============================================//
 
     // insert user data from client side
@@ -102,91 +115,206 @@ async function run() {
     });
 
     // get all camps
-    app.get("/all-camps", async (req, res) => {
-      const result = await campCollection.find().toArray();
+    app.get("/all-camps", verifyToken, verifyParticipant, async (req, res) => {
+      const { search, sort } = req.query;
+      const query = {};
+      const sortOption = {};
+      if (search) {
+        query.camp_name = { $regex: search, $options: "i" };
+      }
+
+      // sorting logic
+      if (sort === "Most Registered") {
+        sortOption.participant_count = -1;
+      } else if (sort === "Camp Fees") {
+        sortOption.camp_fee = 1;
+      } else if (sort === "Alphabetical Order") {
+        sortOption.camp_name;
+      } else if (sort === "Recent Camp") {
+        sortOption.createdAt = -1;
+      }
+
+      const result = await campCollection
+        .find(query)
+        .sort(sortOption)
+        .toArray();
+      res.send(result);
+    });
+
+    // get user ratings
+    app.get("/ratings", async (req, res) => {
+      const result = await feedbackCollection
+        .find()
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .toArray();
       res.send(result);
     });
 
     //======================================= API for user =================================
 
     // get camp details
-    app.get("/user/camp-details/:id", verifyToken, async (req, res) => {
-      const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
-      const result = await campCollection.findOne(query);
-      res.send(result);
-    });
+    app.get(
+      "/user/camp-details/:id",
+      verifyToken,
+      verifyParticipant,
+      async (req, res) => {
+        const id = req.params.id;
+        const query = { _id: new ObjectId(id) };
+        const result = await campCollection.findOne(query);
+        res.send(result);
+      }
+    );
 
     // save user join-camp info
-    app.post("/user/join-camp", async (req, res) => {
-      const joinInfo = req.body;
-      joinInfo.payment_status = "unpaid";
-      joinInfo.confirmation_status = "pending";
-      const result = await campParticipants.insertOne(joinInfo);
+    app.post(
+      "/user/join-camp",
+      verifyToken,
+      verifyParticipant,
+      async (req, res) => {
+        const joinInfo = req.body;
+        joinInfo.payment_status = "unpaid";
+        joinInfo.confirmation_status = "pending";
+        const result = await campParticipants.insertOne(joinInfo);
 
-      const campId = joinInfo.campId;
-      await campCollection.updateOne(
-        { _id: new ObjectId(campId) },
-        { $inc: { participant_count: 1 } }
-      );
+        const campId = joinInfo.campId;
+        await campCollection.updateOne(
+          { _id: new ObjectId(campId) },
+          { $inc: { participant_count: 1 } }
+        );
 
-      res.send(result);
-    });
+        res.send(result);
+      }
+    );
 
     // get registered camps
-    app.get("/user/registeredCamps", async (req, res) => {
-      const email = req.query.email;
-      const page = parseInt(req.query.page);
-      const size = parseInt(req.query.size);
-      const searchText = req.query.search;
-      console.log(searchText);
-      console.log("registeredCamps", page, size);
-      const query = { participant_email: email };
-      if (searchText) {
-        query.camp_name = { $regex: searchText, $options: "i" };
+    app.get(
+      "/user/registeredCamps",
+      verifyToken,
+      verifyParticipant,
+      async (req, res) => {
+        const email = req.query.email;
+        const page = parseInt(req.query.page);
+        const size = parseInt(req.query.size);
+        const searchText = req.query.search;
+        console.log(searchText);
+        console.log("registeredCamps", page, size);
+        const query = { participant_email: email };
+        if (searchText) {
+          query.camp_name = { $regex: searchText, $options: "i" };
+        }
+        const result = await campParticipants
+          .find(query)
+          .skip(page * size)
+          .limit(size)
+          .toArray();
+        res.send(result);
       }
-      const result = await campParticipants
-        .find(query)
-        .skip(page * size)
-        .limit(size)
-        .toArray();
-      res.send(result);
-    });
+    );
 
     // get count for registered camp
-    app.get("/user/participant-camp-count", async (req, res) => {
-      const email = req.query.email;
-      const count = await campParticipants.countDocuments({
-        participant_email: email,
-      });
-      res.send({ count });
-    });
+    app.get(
+      "/user/participant-camp-count",
+      verifyToken,
+      verifyParticipant,
+      async (req, res) => {
+        const email = req.query.email;
+        const count = await campParticipants.countDocuments({
+          participant_email: email,
+        });
+        res.send({ count });
+      }
+    );
 
     // check user joined
-    app.get("/user/is-joined", async (req, res) => {
-      const { campId, email } = req.query;
+    app.get(
+      "/user/is-joined",
+      verifyToken,
+      verifyParticipant,
+      async (req, res) => {
+        const { campId, email } = req.query;
 
-      const existing = await campParticipants.findOne({
-        participant_email: email,
-        campId,
-      });
-      res.send({ alreadyJoined: !!existing });
-    });
+        const existing = await campParticipants.findOne({
+          participant_email: email,
+          campId,
+        });
+        res.send({ alreadyJoined: !!existing });
+      }
+    );
 
     // get camp participant
-    app.get("/user/camp-participant/:id", async (req, res) => {
-      const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
-      const result = await campParticipants.findOne(query);
-      res.send(result);
-    });
+    app.get(
+      "/user/camp-participant/:id",
+      verifyToken,
+      verifyParticipant,
+      async (req, res) => {
+        const id = req.params.id;
+        const query = { _id: new ObjectId(id) };
+        const result = await campParticipants.findOne(query);
+        res.send(result);
+      }
+    );
 
     // user feedback data save
-    app.post("/user/feedback", async (req, res) => {
-      const feedbackData = req.body;
-      const result = await feedbackCollection.insertOne(feedbackData);
-      res.send(result);
-    });
+    app.post(
+      "/user/feedback",
+      verifyToken,
+      verifyParticipant,
+      async (req, res) => {
+        const feedbackData = req.body;
+        const result = await feedbackCollection.insertOne(feedbackData);
+        res.send(result);
+      }
+    );
+
+    // participant analytics
+    app.get(
+      "/user/analytics",
+      verifyToken,
+      verifyParticipant,
+      async (req, res) => {
+        const email = req.query.email;
+        console.log(email);
+
+        const totalJoinedCamps = await campParticipants.countDocuments({
+          participant_email: email,
+        });
+
+        const totalPaidPayments = await paymentCollection.countDocuments({
+          email,
+          payment_status: "paid",
+        });
+
+        const totalPendingPayments = await paymentCollection.countDocuments({
+          email,
+          payment_status: "unpaid",
+        });
+
+        const paidAmountAgg = await paymentCollection
+          .aggregate([
+            {
+              $match: {
+                email: email,
+                payment_status: "paid",
+              },
+            },
+            {
+              $group: {
+                _id: null,
+                total: { $sum: { $toDouble: "$amount" } },
+              },
+            },
+          ])
+          .toArray();
+        const totalPaidAmount = paidAmountAgg[0]?.total || 0;
+        res.send({
+          totalJoinedCamps,
+          totalPaidPayments,
+          totalPendingPayments,
+          totalPaidAmount,
+        });
+      }
+    );
     //======================================== API for admin access =======================================
 
     app.post("/admin/add-camp", verifyToken, verifyAdmin, async (req, res) => {
@@ -335,7 +463,7 @@ async function run() {
     });
 
     // admin Analytics API
-    app.get("/admin/analytics", async (req, res) => {
+    app.get("/admin/analytics", verifyToken, verifyAdmin, async (req, res) => {
       const now = new Date();
       const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
       const startOfLastMonth = new Date(
@@ -449,6 +577,53 @@ async function run() {
       });
     });
 
+    //=========================================== update profile data ===================================
+
+    app.patch(
+      "/admin/updateProfile/:email",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        const email = req.params.email;
+        const { name, photoURL } = req.body;
+
+        console.log(name, photoURL);
+        const query = { email: email };
+        const updateDoc = {
+          $set: {
+            name: name,
+            photoURL: photoURL,
+          },
+        };
+        const result = await userCollection.updateOne(query, updateDoc);
+        res.send(result);
+        console.log(result);
+      }
+    );
+
+    // update participant profile
+    app.patch(
+      "/participant/updateProfile/:email",
+      verifyToken,
+      verifyParticipant,
+      async (req, res) => {
+        const email = req.params.email;
+        const { name, photoURL } = req.body;
+
+        console.log(name, photoURL);
+        const query = { email: email };
+        const updateDoc = {
+          $set: {
+            name: name,
+            photoURL: photoURL,
+          },
+        };
+        const result = await userCollection.updateOne(query, updateDoc);
+        res.send(result);
+        console.log(result);
+      }
+    );
+
     //=========================================== Payment method API ==================================
     app.post("/create-payment-intent", async (req, res) => {
       const { amount } = req.body;
@@ -460,7 +635,7 @@ async function run() {
       res.send(paymentIntent);
     });
     // save payment history and also update payment status and conform status
-    app.post("/payment/save-history", async (req, res) => {
+    app.post("/payment/save-history", verifyToken, async (req, res) => {
       const {
         participantId,
         camp_name,
@@ -494,33 +669,43 @@ async function run() {
       res.send(paymentResult);
     });
 
-    app.get("/payment/history", async (req, res) => {
-      const email = req.query.email;
-      const page = parseInt(req.query.page);
-      const size = parseInt(req.query.size);
-      const searchText = req.query.search;
+    app.get(
+      "/payment/history",
+      verifyToken,
+      verifyParticipant,
+      async (req, res) => {
+        const email = req.query.email;
+        const page = parseInt(req.query.page);
+        const size = parseInt(req.query.size);
+        const searchText = req.query.search;
 
-      const query = { email: email };
-      if (searchText) {
-        query.camp_name = { $regex: searchText, $options: "i" };
+        const query = { email: email };
+        if (searchText) {
+          query.camp_name = { $regex: searchText, $options: "i" };
+        }
+        const result = await paymentCollection
+          .find(query)
+          .skip(page * size)
+          .limit(size)
+          .toArray();
+
+        res.send(result);
       }
-      const result = await paymentCollection
-        .find(query)
-        .skip(page * size)
-        .limit(size)
-        .toArray();
+    );
+    app.get(
+      "/payment/participant-payment-count",
+      verifyToken,
+      verifyParticipant,
+      async (req, res) => {
+        const email = req.query.email;
+        console.log(email);
+        const count = await paymentCollection.countDocuments({
+          email: email,
+        });
 
-      res.send(result);
-    });
-    app.get("/payment/participant-payment-count", async (req, res) => {
-      const email = req.query.email;
-      console.log(email);
-      const count = await paymentCollection.countDocuments({
-        email: email,
-      });
-
-      res.send({ count });
-    });
+        res.send({ count });
+      }
+    );
     //==================================================================================================
   } finally {
     // Ensures that the client will close when you finish/error
