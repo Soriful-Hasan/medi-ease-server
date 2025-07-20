@@ -212,6 +212,14 @@ async function run() {
       }
     );
 
+    // cancel register camp
+    app.delete("/user/camp-cancel/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await campParticipants.deleteOne(query);
+      res.send(result);
+    });
+
     // get count for registered camp
     app.get(
       "/user/participant-camp-count",
