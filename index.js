@@ -1,13 +1,10 @@
+const dotenv = require("dotenv");
 const express = require("express");
 const admin = require("firebase-admin");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const cors = require("cors");
-const dotenv = require("dotenv");
 const { default: Stripe } = require("stripe");
-const serviceAccount = require("./firebase-admin.json");
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-});
+
 dotenv.config();
 
 const app = express();
@@ -17,6 +14,13 @@ const port = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
+const decodedKey = Buffer.from(process.env.FB_SERVICE_KEY, "base64").toString(
+  "utf8"
+);
+const serviceAccount = JSON.parse(decodedKey);
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
 // require stripe
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 
@@ -48,8 +52,8 @@ const client = new MongoClient(uri, {
 });
 async function run() {
   try {
-    await client.connect();
-    await client.db("admin").command({ ping: 1 });
+    // await client.connect();
+    // await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
     );
@@ -115,7 +119,7 @@ async function run() {
     });
 
     // get all camps
-    app.get("/all-camps", verifyToken, verifyParticipant, async (req, res) => {
+    app.get("/all-camps", async (req, res) => {
       const { search, sort } = req.query;
       const query = {};
       const sortOption = {};
@@ -146,7 +150,7 @@ async function run() {
       const result = await feedbackCollection
         .find()
         .sort({ createdAt: -1 })
-        .limit(10)
+        .limit(9)
         .toArray();
       res.send(result);
     });
@@ -410,11 +414,17 @@ async function run() {
       async (req, res) => {
         const id = req.params.id;
 
+        const paymentMethodUpdate = await paymentCollection.updateOne(
+          {
+            participantId: new ObjectId(id),
+          },
+          { $set: { confirmation_status: "confirmed" } }
+        );
         const result = await campParticipants.updateOne(
           { _id: new ObjectId(id) },
           { $set: { confirmation_status: "confirmed" } }
         );
-        res.send(result);
+        res.send({ result, paymentMethodUpdate });
       }
     );
     // delete registered camp (payment=unpaid , status=pending)
