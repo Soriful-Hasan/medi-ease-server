@@ -414,16 +414,15 @@ async function run() {
       async (req, res) => {
         const id = req.params.id;
 
-        const paymentMethodUpdate = await paymentCollection.updateOne(
-          {
-            participantId: new ObjectId(id),
-          },
-          { $set: { confirmation_status: "confirmed" } }
-        );
         const result = await campParticipants.updateOne(
           { _id: new ObjectId(id) },
           { $set: { confirmation_status: "confirmed" } }
         );
+        const paymentMethodUpdate = await paymentCollection.updateOne(
+          { participantId: id },
+          { $set: { confirmation_status: "confirmed" } }
+        );
+        
         res.send({ result, paymentMethodUpdate });
       }
     );
